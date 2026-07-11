@@ -1,0 +1,424 @@
+// Kindred — data model (spec §8)
+// Design rule: architected for the full vision (v3), built for the MVP slice.
+// All money amounts are integer paise (BigInt) — never floats.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum UserRole {
+  DONOR
+  ADMIN
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ConsentScope {
+  MILESTONES_ONLY // donors see structured milestone progress only
+  NOTES_AND_PHOTOS // + human notes and photos in updates
+  FULL_STORY // + identity on the public case page
+}
+
+enum CaseType {
+  INDIVIDUAL // person-to-person; NOT 80G-deductible (spec §9.2)
+  NGO_BACKED // routed via registered 80G trust; receipt eligible
+}
+
+enum CaseStatus {
+  DRAFT
+  PENDING_VERIFICATION
+  ACTIVE // verified + public + accepting donations
+  FUNDED // goal reached, disbursements in progress
+  FULFILLED // closing update sent — the good ending
+  CLOSED_UNFULFILLED // dignified closure; leftover policy applies
+  FROZEN // flagged; disbursements paused pending review
+}
+
+enum LeftoverPolicy {
+  SIMILAR_CASE // redirect to a similar verified case
+  PRO_RATA_REFUND
+  CAUSE_POOL // move to the case's cause pool
+}
+
+enum MilestoneStatus {
+  PENDING
+  VERIFIED // verification partner signed off
+  RELEASED // tranche disbursed to provider
+}
+
+enum DonationStatus {
+  INITIATED // payment started
+  HELD // captured, in escrow, awaiting allocation/milestones
+  ALLOCATED // fully earmarked to case milestone(s)
+  DISBURSED // all allocations paid out to providers
+  REFUNDED
+}
+
+enum DisbursementStatus {
+  INITIATED
+  SETTLED
+  FAILED
+}
+
+enum ProofKind {
+  INVOICE
+  RECEIPT
+  VERIFIER_SIGNOFF
+  PHOTO
+  DOCUMENT
+}
+
+enum UpdateKind {
+  PROGRESS
+  MILESTONE
+  CLOSING // the celebratory final update — first-class moment
+  CLOSURE // honest, dignified update for hard endings
+}
+
+enum LedgerEntryKind {
+  DONATION_RECEIVED // money entered escrow
+  ALLOCATION // earmarked to a case milestone
+  DEALLOCATION // earmark reversed (offsetting entry)
+  DISBURSEMENT // paid out direct-to-provider
+  REFUND
+  ADJUSTMENT // corrections are new offsetting entries, never edits
+}
+
+enum AnchorStatus {
+  PENDING
+  CONFIRMED
+}
+
+// ─────────────────────────── People ───────────────────────────
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  phone     String?
+  role      UserRole   @default(DONOR)
+  createdAt DateTime   @default(now())
+  donations Donation[]
+
+  @@map("users")
+}
+
+model Beneficiary {
+  id         String    @id @default(cuid())
+  fullName   String // private — never shown without FULL_STORY consent
+  publicName String // masked display, e.g. "a 7-year-old in Chennai"
+  guardian   String? // when the beneficiary is a minor
+  city       String?
+  kycStatus  KycStatus @default(PENDING)
+  kycRef     String? // reference into the KYC provider, never raw documents
+  createdAt  DateTime  @default(now())
+
+  cases    Case[]
+  consents ConsentRecord[]
+
+  @@map("beneficiaries")
+}
+
+// Consent is first-class data: timestamped, versioned, revocable (spec §11)
+model ConsentRecord {
+  id            String       @id @default(cuid())
+  beneficiaryId String
+  beneficiary   Beneficiary  @relation(fields: [beneficiaryId], references: [id])
+  scope         ConsentScope
+  version       Int
+  grantedAt     DateTime     @default(now())
+  revokedAt     DateTime?
+
+  @@index([beneficiaryId])
+  @@map("consent_records")
+}
+
+model VerificationPartner {
+  id          String    @id @default(cuid())
+  orgName     String
+  contactName String
+  email       String    @unique
+  phone       String?
+  kycStatus   KycStatus @default(PENDING)
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  verifiedCases      Case[]
+  verifiedMilestones Milestone[]
+  statusUpdates      StatusUpdate[]
+
+  @@map("verification_partners")
+}
+
+model Provider {
+  id           String   @id @default(cuid())
+  name         String
+  kind         String // HOSPITAL | VENDOR | SCHOOL | NGO — free-form for now
+  gstin        String?
+  bankVerified Boolean  @default(false)
+  bankRef      String? // reference into payment gateway (fund account id)
+  createdAt    DateTime @default(now())
+
+  disbursements Disbursement[]
+
+  @@map("providers")
+}
+
+// ─────────────────────────── Causes & cases ───────────────────────────
+
+// Taxonomy is data, not code (spec §3). Self-referential tree.
+model Cause {
+  id       String  @id @default(cuid())
+  slug     String  @unique
+  name     String
+  level    Int // 0 = domain, 1 = category, 2 = subcategory
+  parentId String?
+  parent   Cause?  @relation("CauseTree", fields: [parentId], references: [id])
+  children Cause[] @relation("CauseTree")
+  isActive Boolean @default(true)
+
+  cases         Case[]
+  poolDonations Donation[] // node-level gifts land here; allocation engine is v2
+
+  @@index([parentId])
+  @@map("causes")
+}
+
+model Case {
+  id             String         @id @default(cuid())
+  caseNumber     Int            @unique @default(autoincrement()) // "Case #442"
+  title          String
+  story          String
+  city           String?
+  type           CaseType
+  status         CaseStatus     @default(DRAFT)
+  goalPaise      BigInt
+  raisedPaise    BigInt         @default(0) // denormalized; ledger is the truth
+  leftoverPolicy LeftoverPolicy // agreed at case creation, shown to donors (spec §9.4)
+
+  causeId       String
+  cause         Cause                @relation(fields: [causeId], references: [id])
+  beneficiaryId String
+  beneficiary   Beneficiary          @relation(fields: [beneficiaryId], references: [id])
+  verifiedById  String?
+  verifiedBy    VerificationPartner? @relation(fields: [verifiedById], references: [id])
+
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+  fulfilledAt DateTime?
+
+  milestones    Milestone[]
+  donations     Donation[] // case-level gifts
+  allocations   Allocation[]
+  statusUpdates StatusUpdate[]
+  ledgerEntries LedgerEntry[]
+  impactRecords ImpactRecord[]
+
+  @@index([causeId, status])
+  @@map("cases")
+}
+
+// Tranches of the escrow: funds release milestone-by-milestone (spec §4.1)
+model Milestone {
+  id          String          @id @default(cuid())
+  caseId      String
+  case        Case            @relation(fields: [caseId], references: [id])
+  ord         Int // display/release order
+  title       String // "Admission confirmed", "Surgery scheduled", …
+  amountPaise BigInt // tranche size
+  status      MilestoneStatus @default(PENDING)
+
+  verifiedById String?
+  verifiedBy   VerificationPartner? @relation(fields: [verifiedById], references: [id])
+  verifiedAt   DateTime?
+
+  allocations   Allocation[]
+  disbursements Disbursement[]
+  statusUpdates StatusUpdate[]
+
+  @@unique([caseId, ord])
+  @@map("milestones")
+}
+
+// ─────────────────────────── Money ───────────────────────────
+
+// A donation targets EITHER a specific case OR a cause node (pool).
+// Exactly-one is enforced by a CHECK constraint in the migration.
+// Pools are v2 UI, but the model supports them from day one.
+model Donation {
+  id             String         @id @default(cuid())
+  donationNumber Int            @unique @default(autoincrement()) // "D-1024"
+  donorId        String
+  donor          User           @relation(fields: [donorId], references: [id])
+  amountPaise    BigInt
+  currency       String         @default("INR")
+  status         DonationStatus @default(INITIATED)
+  paymentRef     String? // gateway payment/order id (Razorpay)
+  optInUpdates   Boolean        @default(true) // donor's side of the double opt-in
+
+  targetCaseId  String?
+  targetCase    Case?   @relation(fields: [targetCaseId], references: [id])
+  targetCauseId String?
+  targetCause   Cause?  @relation(fields: [targetCauseId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  allocations   Allocation[]
+  ledgerEntries LedgerEntry[]
+  impactRecords ImpactRecord[]
+
+  @@index([donorId])
+  @@index([targetCaseId])
+  @@map("donations")
+}
+
+// Earmark of donated funds to a case milestone (spec §8)
+model Allocation {
+  id          String @id @default(cuid())
+  donationId  String
+  donation    Donation @relation(fields: [donationId], references: [id])
+  caseId      String
+  case        Case @relation(fields: [caseId], references: [id])
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id])
+  amountPaise BigInt
+  createdAt   DateTime @default(now())
+
+  ledgerEntries LedgerEntry[]
+
+  @@index([donationId])
+  @@index([caseId])
+  @@map("allocations")
+}
+
+// Actual payout — always direct-to-provider (spec §4)
+model Disbursement {
+  id          String             @id @default(cuid())
+  milestoneId String
+  milestone   Milestone          @relation(fields: [milestoneId], references: [id])
+  providerId  String
+  provider    Provider           @relation(fields: [providerId], references: [id])
+  amountPaise BigInt
+  status      DisbursementStatus @default(INITIATED)
+  paymentRef  String? // gateway transfer/payout id
+  initiatedAt DateTime           @default(now())
+  settledAt   DateTime?
+
+  proofs        ProofArtifact[]
+  ledgerEntries LedgerEntry[]
+
+  @@index([milestoneId])
+  @@map("disbursements")
+}
+
+// ─────────────────────────── Evidence & updates ───────────────────────────
+
+model ProofArtifact {
+  id          String    @id @default(cuid())
+  kind        ProofKind
+  storageKey  String // encrypted original in object storage
+  redactedKey String? // donor-visible redacted copy (spec §11)
+  sha256      String // content hash — referenced by ledger payloads
+
+  disbursementId String?
+  disbursement   Disbursement? @relation(fields: [disbursementId], references: [id])
+  statusUpdateId String?
+  statusUpdate   StatusUpdate? @relation(fields: [statusUpdateId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@map("proof_artifacts")
+}
+
+// Verified updaters only; kind=CLOSING is the product's signature moment (spec §6)
+model StatusUpdate {
+  id          String     @id @default(cuid())
+  caseId      String
+  case        Case       @relation(fields: [caseId], references: [id])
+  kind        UpdateKind
+  body        String
+  milestoneId String?
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id])
+
+  authorPartnerId String?
+  authorPartner   VerificationPartner? @relation(fields: [authorPartnerId], references: [id])
+
+  publishedAt DateTime @default(now())
+
+  proofs ProofArtifact[]
+
+  @@index([caseId, publishedAt])
+  @@map("status_updates")
+}
+
+// Outcome linking donors to a fulfilled case — feeds "lives touched" (spec §7)
+model ImpactRecord {
+  id         String   @id @default(cuid())
+  caseId     String
+  case       Case     @relation(fields: [caseId], references: [id])
+  donationId String
+  donation   Donation @relation(fields: [donationId], references: [id])
+  summary    String // "Your ₹2,000 helped fund Ravi's chemo (Case #442)"
+  createdAt  DateTime @default(now())
+
+  @@unique([caseId, donationId])
+  @@map("impact_records")
+}
+
+// ─────────────────────────── The ledger (spec §4.3, §5) ───────────────────────────
+
+// Append-only: UPDATE/DELETE are blocked by a Postgres trigger (see migration).
+// Corrections are new offsetting entries. Each entry hash-chains to the previous
+// one; anchors commit contiguous seq ranges to Polygon via a Merkle root.
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  seq         BigInt          @unique @default(autoincrement()) // total order for chain + Merkle batches
+  kind        LedgerEntryKind
+  amountPaise BigInt // positive; direction is implied by kind
+  currency    String          @default("INR")
+
+  donationId     String?
+  donation       Donation?     @relation(fields: [donationId], references: [id])
+  allocationId   String?
+  allocation     Allocation?   @relation(fields: [allocationId], references: [id])
+  disbursementId String?
+  disbursement   Disbursement? @relation(fields: [disbursementId], references: [id])
+  caseId         String?
+  case           Case?         @relation(fields: [caseId], references: [id])
+
+  payload   Json // canonical snapshot of the event (incl. proof sha256s)
+  prevHash  String // entryHash of the previous entry ("GENESIS" for seq 1)
+  entryHash String   @unique // sha256(prevHash ‖ canonical entry fields)
+  createdAt DateTime @default(now())
+
+  @@index([donationId])
+  @@index([caseId])
+  @@map("ledger_entries")
+}
+
+// One on-chain commitment covering a contiguous seq range of ledger entries.
+// Proofs are recomputed on demand from the range — entries stay strictly immutable.
+model Anchor {
+  id         String       @id @default(cuid())
+  fromSeq    BigInt
+  toSeq      BigInt
+  merkleRoot String
+  network    String       @default("polygon-amoy") // testnet until launch review
+  txHash     String?
+  status     AnchorStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  anchoredAt DateTime?
+
+  @@unique([fromSeq, toSeq])
+  @@map("anchors")
+}
