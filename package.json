@@ -11,7 +11,8 @@
     "db:seed": "prisma db seed",
     "verify:ledger": "tsx scripts/verify-ledger.ts",
     "verify:workflow": "tsx scripts/verify-workflow.ts",
-    "verify:trace": "tsx scripts/verify-trace.ts"
+    "verify:trace": "tsx scripts/verify-trace.ts",
+    "verify:dashboard": "tsx scripts/verify-dashboard.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

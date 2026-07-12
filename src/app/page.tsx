@@ -67,6 +67,15 @@ export default async function Home() {
         </button>
       </form>
 
+      <p className="mt-3 text-sm">
+        <Link
+          href="/dashboard"
+          className="text-accent-strong underline-offset-2 hover:underline"
+        >
+          See your impact — every life your giving has touched →
+        </Link>
+      </p>
+
       <section className="mt-12">
         <h2 className="text-sm font-semibold tracking-[0.14em] text-faint uppercase">
           Verified cases
