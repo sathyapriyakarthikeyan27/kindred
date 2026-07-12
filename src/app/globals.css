@@ -1,26 +1,55 @@
 @import "tailwindcss";
 
+/* Kindred identity — same tokens as the product spec artifact */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fbfaf8;
+  --foreground: #20261f;
+  --muted: #55604f;
+  --faint: #8a9284;
+  --accent: #0e7a5f;
+  --accent-strong: #0a5c48;
+  --accent-wash: #eaf3ee;
+  --gold: #c98a2b;
+  --gold-wash: #f8f0e1;
+  --line: #dde2d8;
+  --card: #f3f4ef;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #151a17;
+    --foreground: #e6eae3;
+    --muted: #a7b0a2;
+    --faint: #6e7869;
+    --accent: #45c29a;
+    --accent-strong: #6ed9b4;
+    --accent-wash: #1c2a24;
+    --gold: #dca648;
+    --gold-wash: #2a2317;
+    --line: #2a322b;
+    --card: #1b211d;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-wash: var(--accent-wash);
+  --color-gold: var(--gold);
+  --color-gold-wash: var(--gold-wash);
+  --color-line: var(--line);
+  --color-card: var(--card);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-display: var(--font-fraunces);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
 }

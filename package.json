@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "verify:ledger": "tsx scripts/verify-ledger.ts",
-    "verify:workflow": "tsx scripts/verify-workflow.ts"
+    "verify:workflow": "tsx scripts/verify-workflow.ts",
+    "verify:trace": "tsx scripts/verify-trace.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
