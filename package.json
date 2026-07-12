@@ -12,12 +12,15 @@
     "verify:ledger": "tsx scripts/verify-ledger.ts",
     "verify:workflow": "tsx scripts/verify-workflow.ts",
     "verify:trace": "tsx scripts/verify-trace.ts",
-    "verify:dashboard": "tsx scripts/verify-dashboard.ts"
+    "verify:dashboard": "tsx scripts/verify-dashboard.ts",
+    "verify:anchoring": "tsx scripts/verify-anchoring.ts",
+    "anchor:run": "tsx scripts/run-anchoring.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
     "next": "16.2.10",
     "prisma": "^7.8.0",
     "react": "19.2.4",

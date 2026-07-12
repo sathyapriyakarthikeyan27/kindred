@@ -117,6 +117,10 @@ export default async function Home() {
           and vendors against verified milestones — never as loose cash.{" "}
           <Link href="/trace/1" className="underline hover:text-muted">
             See a live trail
+          </Link>{" "}
+          ·{" "}
+          <Link href="/transparency" className="underline hover:text-muted">
+            Verify our ledger
           </Link>
         </p>
       </footer>
